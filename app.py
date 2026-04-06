@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -106,23 +106,24 @@ VISION_SCHEMA = {
 }
 
 
-@app.get("/")
-async def root() -> FileResponse:
+@app.get("/", response_class=HTMLResponse)
+async def root() -> HTMLResponse:
     if not INDEX_PATH.exists():
-        raise HTTPException(status_code=500, detail="index.html not found.")
-    return FileResponse(INDEX_PATH)
-
-
-@app.get("/index.html")
-async def index_page() -> FileResponse:
-    if not INDEX_PATH.exists():
-        raise HTTPException(status_code=500, detail="index.html not found.")
-    return FileResponse(INDEX_PATH)
+        return HTMLResponse(
+            "<h1>index.html not found</h1><p>Please make sure index.html is in the top level of the repo.</p>",
+            status_code=500,
+        )
+    return HTMLResponse(INDEX_PATH.read_text(encoding="utf-8"))
 
 
 @app.get("/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/catalog")
+async def catalog() -> JSONResponse:
+    return JSONResponse(load_catalog())
 
 
 @app.post("/api/analyze")
