@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent
 INDEX_PATH = BASE_DIR / "index.html"
 DATA_PATH = BASE_DIR / "catalog.json"
 
-app = FastAPI(title="Client Demo Live")
+app = FastAPI(title="Image Catalog Demo")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,10 +27,21 @@ app.add_middleware(
 
 
 def get_client() -> OpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is missing.")
     return OpenAI(api_key=api_key)
+
+
+def get_model_candidates() -> List[str]:
+    raw = os.getenv(
+        "OPENAI_MODEL_CANDIDATES",
+        "gpt-4o-mini,gpt-4.1-mini,gpt-5.4-mini"
+    )
+    models = [m.strip() for m in raw.split(",") if m.strip()]
+    if not models:
+        models = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4-mini"]
+    return models
 
 
 def load_catalog() -> List[Dict[str, Any]]:
@@ -40,6 +52,7 @@ def load_catalog() -> List[Dict[str, Any]]:
 
 def score_match(record: Dict[str, Any], query: Dict[str, Any]) -> float:
     score = 0.0
+
     make = (query.get("possible_make") or "").lower().strip()
     model = (query.get("possible_model") or "").lower().strip()
     caliber = (query.get("possible_caliber") or "").lower().strip()
@@ -79,6 +92,22 @@ def search_catalog_local(query: Dict[str, Any], limit: int = 5) -> List[Dict[str
     return results[:limit]
 
 
+def extract_first_json_block(text: str) -> Dict[str, Any]:
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Model returned empty output.")
+
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ValueError(f"Model returned non-JSON output: {text[:500]}")
+    return json.loads(match.group(0))
+
+
 VISION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -106,6 +135,111 @@ VISION_SCHEMA = {
 }
 
 
+def call_openai_for_analysis(
+    client: OpenAI,
+    model: str,
+    image_content_type: str,
+    image_b64: str
+) -> Dict[str, Any]:
+    prompt = (
+        "Analyze the uploaded product image and return only valid JSON that matches the schema. "
+        "Infer likely item type, likely make, likely model, likely caliber, visible markings, confidence, and concise notes. "
+        "If uncertain, lower confidence and explain uncertainty in notes. "
+        "Do not add markdown or commentary outside JSON."
+    )
+
+    response = client.responses.create(
+        model=model,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{image_content_type};base64,{image_b64}",
+                        "detail": "low"
+                    }
+                ]
+            }
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "catalog_extraction",
+                "schema": VISION_SCHEMA,
+                "strict": True
+            }
+        }
+    )
+
+    raw_text = getattr(response, "output_text", None)
+    if not raw_text:
+        raise ValueError("OpenAI returned no text output.")
+    return extract_first_json_block(raw_text)
+
+
+def analyze_with_fallbacks(
+    client: OpenAI,
+    image_content_type: str,
+    image_b64: str
+) -> Dict[str, Any]:
+    errors = []
+    for model in get_model_candidates():
+        try:
+            extracted = call_openai_for_analysis(
+                client=client,
+                model=model,
+                image_content_type=image_content_type,
+                image_b64=image_b64,
+            )
+            return {"model_used": model, "extracted": extracted}
+        except Exception as exc:
+            errors.append(f"{model}: {exc}")
+
+    raise ValueError("All model attempts failed.\n" + "\n".join(errors))
+
+
+class ChatRequest(BaseModel):
+    message: str
+    extracted: Optional[Dict[str, Any]] = None
+    matches: Optional[List[Dict[str, Any]]] = None
+
+
+def chat_with_fallbacks(client: OpenAI, payload: ChatRequest) -> Dict[str, Any]:
+    system_text = (
+        "You are a grounded catalog assistant. "
+        "Use the extracted fields and provided catalog matches. "
+        "Do not invent certainty. "
+        "Prefer the provided catalog matches over guesses."
+    )
+
+    user_context = {
+        "user_message": payload.message,
+        "current_extracted_fields": payload.extracted or {},
+        "current_catalog_matches": payload.matches or [],
+    }
+
+    errors = []
+    for model in get_model_candidates():
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": json.dumps(user_context)}
+                ]
+            )
+            answer = getattr(response, "output_text", None)
+            if not answer:
+                raise ValueError("No chat output returned.")
+            return {"model_used": model, "answer": answer}
+        except Exception as exc:
+            errors.append(f"{model}: {exc}")
+
+    raise ValueError("All chat model attempts failed.\n" + "\n".join(errors))
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root() -> HTMLResponse:
     if not INDEX_PATH.exists():
@@ -117,8 +251,13 @@ async def root() -> HTMLResponse:
 
 
 @app.get("/health")
-async def health() -> Dict[str, str]:
-    return {"status": "ok"}
+async def health() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "model_candidates": get_model_candidates(),
+        "has_index_html": INDEX_PATH.exists(),
+        "has_catalog_json": DATA_PATH.exists(),
+    }
 
 
 @app.get("/catalog")
@@ -133,147 +272,35 @@ async def analyze(image: UploadFile = File(...)) -> Dict[str, Any]:
 
     content = await image.read()
     image_b64 = base64.b64encode(content).decode("utf-8")
+
     client = get_client()
 
-    prompt = (
-        "Analyze the uploaded image and return only valid JSON matching the schema. "
-        "Provide a likely item type, likely make, likely model, likely caliber, visible markings, confidence, and concise notes. "
-        "If the image is unclear, lower confidence and explain why. "
-        "Do not invent certainty."
-    )
-
     try:
-        response = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {
-                            "type": "input_image",
-                            "image_url": f"data:{image.content_type};base64,{image_b64}",
-                            "detail": "low"
-                        }
-                    ]
-                }
-            ],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "catalog_extraction",
-                    "schema": VISION_SCHEMA,
-                    "strict": True
-                }
-            }
+        result = analyze_with_fallbacks(
+            client=client,
+            image_content_type=image.content_type,
+            image_b64=image_b64,
         )
+        extracted = result["extracted"]
+        matches = search_catalog_local(extracted, limit=5)
+        return {
+            "model_used": result["model_used"],
+            "extracted": extracted,
+            "matches": matches,
+        }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OpenAI analyze call failed: {exc}")
-
-    try:
-        extracted = json.loads(response.output_text)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Could not parse model JSON: {exc}")
-
-    matches = search_catalog_local(extracted, limit=5)
-    return {"extracted": extracted, "matches": matches}
-
-
-class ChatRequest(BaseModel):
-    message: str
-    extracted: Optional[Dict[str, Any]] = None
-    matches: Optional[List[Dict[str, Any]]] = None
-
-
-def tool_search_catalog(arguments_json: str) -> Dict[str, Any]:
-    args = json.loads(arguments_json or "{}")
-    query = {
-        "item_type": args.get("item_type", ""),
-        "possible_make": args.get("possible_make", ""),
-        "possible_model": args.get("possible_model", ""),
-        "possible_caliber": args.get("possible_caliber", ""),
-        "visible_markings": args.get("visible_markings", []),
-    }
-    return {"results": search_catalog_local(query, limit=5)}
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest) -> Dict[str, Any]:
     client = get_client()
 
-    system_text = (
-        "You are a grounded catalog assistant. "
-        "Use the extracted fields and provided catalog matches. "
-        "If needed, call the search_catalog tool instead of guessing. "
-        "Be clear when identification is uncertain."
-    )
-
-    user_context = {
-        "user_message": payload.message,
-        "current_extracted_fields": payload.extracted or {},
-        "current_catalog_matches": payload.matches or [],
-    }
-
-    tools = [
-        {
-            "type": "function",
-            "name": "search_catalog",
-            "description": "Search the local catalog for likely matching records.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "item_type": {"type": "string"},
-                    "possible_make": {"type": "string"},
-                    "possible_model": {"type": "string"},
-                    "possible_caliber": {"type": "string"},
-                    "visible_markings": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    }
-                },
-                "additionalProperties": False
-            }
+    try:
+        result = chat_with_fallbacks(client, payload)
+        return {
+            "model_used": result["model_used"],
+            "answer": result["answer"],
         }
-    ]
-
-    try:
-        first = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
-            input=[
-                {"role": "system", "content": system_text},
-                {"role": "user", "content": json.dumps(user_context)}
-            ],
-            tools=tools,
-        )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OpenAI chat call failed: {exc}")
-
-    tool_calls = [
-        item for item in first.output
-        if item.type == "function_call" and item.name == "search_catalog"
-    ]
-
-    if not tool_calls:
-        return {"answer": first.output_text}
-
-    followup_inputs = []
-    for call in tool_calls:
-        result = tool_search_catalog(call.arguments)
-        followup_inputs.append(
-            {
-                "type": "function_call_output",
-                "call_id": call.call_id,
-                "output": json.dumps(result),
-            }
-        )
-
-    try:
-        second = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
-            previous_response_id=first.id,
-            input=followup_inputs,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OpenAI tool follow-up failed: {exc}")
-
-    return {"answer": second.output_text}
+        raise HTTPException(status_code=500, detail=str(exc))
