@@ -1,273 +1,443 @@
-import base64
-import json
-import os
-import re
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
-from openai import OpenAI
-from pydantic import BaseModel
-
-BASE_DIR = Path(__file__).resolve().parent
-INDEX_PATH = BASE_DIR / "index.html"
-DATA_PATH = BASE_DIR / "catalog.json"
-
-app = FastAPI(title="Image Catalog Demo")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ----------------------------
-# Helpers
-# ----------------------------
-
-def get_client() -> OpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is missing.")
-    return OpenAI(api_key=api_key)
-
-
-def get_model_name() -> str:
-    return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-
-def load_catalog() -> List[Dict[str, Any]]:
-    if not DATA_PATH.exists():
-        raise HTTPException(status_code=500, detail="catalog.json not found.")
-    return json.loads(DATA_PATH.read_text(encoding="utf-8"))
-
-
-def score_match(record: Dict[str, Any], query: Dict[str, Any]) -> float:
-    score = 0.0
-
-    make = (query.get("possible_make") or "").lower().strip()
-    model = (query.get("possible_model") or "").lower().strip()
-    caliber = (query.get("possible_caliber") or "").lower().strip()
-    item_type = (query.get("item_type") or "").lower().strip()
-    markings = [m.lower().strip() for m in (query.get("visible_markings") or []) if m]
-
-    if make and make in record.get("make", "").lower():
-        score += 0.35
-    if model and model in record.get("model", "").lower():
-        score += 0.35
-    if caliber and caliber in record.get("caliber", "").lower():
-        score += 0.15
-    if item_type and item_type in record.get("category", "").lower():
-        score += 0.10
-
-    aliases_text = " ".join(record.get("aliases") or []).lower()
-    if model and model in aliases_text:
-        score += 0.08
-    if make and make in aliases_text:
-        score += 0.04
-
-    record_markings = " ".join(record.get("known_markings") or []).lower()
-    for m in markings:
-        if m and m in record_markings:
-            score += 0.03
-
-    return min(score, 1.0)
-
-
-def search_catalog_local(query: Dict[str, Any], limit: int = 5) -> List[Dict[str, Any]]:
-    results = []
-    for record in load_catalog():
-        score = score_match(record, query)
-        if score > 0:
-            results.append({**record, "score": round(score, 2)})
-    results.sort(key=lambda x: x["score"], reverse=True)
-    return results[:limit]
-
-
-def extract_first_json_block(text: str) -> Dict[str, Any]:
-    """
-    Try to parse text directly as JSON.
-    If that fails, try to extract the first {...} block.
-    """
-    text = (text or "").strip()
-    if not text:
-        raise ValueError("Empty model output")
-
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError(f"Model returned non-JSON output: {text[:500]}")
-    return json.loads(match.group(0))
-
-
-VISION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "item_type": {"type": "string"},
-        "possible_make": {"type": "string"},
-        "possible_model": {"type": "string"},
-        "possible_caliber": {"type": "string"},
-        "visible_markings": {
-            "type": "array",
-            "items": {"type": "string"}
-        },
-        "confidence": {"type": "number"},
-        "notes": {"type": "string"}
-    },
-    "required": [
-        "item_type",
-        "possible_make",
-        "possible_model",
-        "possible_caliber",
-        "visible_markings",
-        "confidence",
-        "notes"
-    ],
-    "additionalProperties": False
-}
-
-
-def call_openai_for_analysis(
-    client: OpenAI,
-    model: str,
-    image_content_type: str,
-    image_b64: str
-) -> Dict[str, Any]:
-    prompt = (
-        "Analyze the uploaded image and return only valid JSON matching the schema. "
-        "Provide a likely item type, likely make, likely model, likely caliber, visible markings, confidence, and concise notes. "
-        "If the image is unclear, lower confidence and explain why. "
-        "Do not include markdown. Do not add commentary outside JSON."
-    )
-
-    response = client.responses.create(
-        model=model,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": prompt},
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:{image_content_type};base64,{image_b64}",
-                        "detail": "low"
-                    }
-                ]
-            }
-        ],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "catalog_extraction",
-                "schema": VISION_SCHEMA,
-                "strict": True
-            }
-        }
-    )
-
-    raw_text = getattr(response, "output_text", None)
-    if not raw_text:
-        raise ValueError("OpenAI returned no text output.")
-
-    return extract_first_json_block(raw_text)
-
-
-# ----------------------------
-# Routes
-# ----------------------------
-
-@app.get("/", response_class=HTMLResponse)
-async def root() -> HTMLResponse:
-    if not INDEX_PATH.exists():
-        return HTMLResponse(
-            "<h1>index.html not found</h1><p>Please make sure index.html is in the top level of the repo.</p>",
-            status_code=500,
-        )
-    return HTMLResponse(INDEX_PATH.read_text(encoding="utf-8"))
-
-
-@app.get("/health")
-async def health() -> Dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/catalog")
-async def catalog() -> JSONResponse:
-    return JSONResponse(load_catalog())
-
-
-@app.post("/api/analyze")
-async def analyze(image: UploadFile = File(...)) -> Dict[str, Any]:
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Please upload an image file.")
-
-    content = await image.read()
-    image_b64 = base64.b64encode(content).decode("utf-8")
-
-    client = get_client()
-    model = get_model_name()
-
-    try:
-        extracted = call_openai_for_analysis(
-            client=client,
-            model=model,
-            image_content_type=image.content_type,
-            image_b64=image_b64,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OpenAI analyze call failed: {exc}")
-
-    matches = search_catalog_local(extracted, limit=5)
-    return {"extracted": extracted, "matches": matches}
-
-
-class ChatRequest(BaseModel):
-    message: str
-    extracted: Optional[Dict[str, Any]] = None
-    matches: Optional[List[Dict[str, Any]]] = None
-
-
-@app.post("/api/chat")
-async def chat(payload: ChatRequest) -> Dict[str, Any]:
-    client = get_client()
-    model = get_model_name()
-
-    system_text = (
-        "You are a grounded catalog assistant. "
-        "Use the extracted fields and provided catalog matches. "
-        "Do not invent certainty. "
-        "If the information is weak or ambiguous, say so clearly. "
-        "Prefer the provided catalog matches over guesses."
-    )
-
-    user_context = {
-        "user_message": payload.message,
-        "current_extracted_fields": payload.extracted or {},
-        "current_catalog_matches": payload.matches or [],
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Image Catalog Demo</title>
+  <style>
+    :root{
+      --bg:#f5f8fc;
+      --card:#ffffff;
+      --ink:#142033;
+      --muted:#5b6b7f;
+      --line:#dbe4ef;
+      --brand:#2f6fed;
+      --brand-soft:#eef4ff;
+      --good:#166534;
+      --good-bg:#eefaf3;
+      --warn:#9a3412;
+      --warn-bg:#fff7ed;
+      --info:#1d4ed8;
+      --info-bg:#eff6ff;
+      --shadow:0 12px 28px rgba(20,32,51,.08);
+      --radius:18px;
     }
 
-    try:
-        response = client.responses.create(
-            model=model,
-            input=[
-                {"role": "system", "content": system_text},
-                {"role": "user", "content": json.dumps(user_context)}
-            ],
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OpenAI chat call failed: {exc}")
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter, Arial, sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+    }
 
-    answer = getattr(response, "output_text", None)
-    if not answer:
-        raise HTTPException(status_code=500, detail="OpenAI returned no chat output.")
+    .wrap{
+      max-width:1200px;
+      margin:0 auto;
+      padding:28px 20px 40px;
+    }
 
-    return {"answer": answer}
+    h1{
+      margin:0 0 8px;
+      font-size:54px;
+      line-height:1;
+      letter-spacing:-0.03em;
+    }
+
+    .lead{
+      color:var(--muted);
+      font-size:18px;
+      margin:0 0 24px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:22px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:22px;
+    }
+
+    .status{
+      padding:14px 16px;
+      border-radius:14px;
+      border:1px solid var(--line);
+      margin-bottom:16px;
+      line-height:1.45;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+
+    .status.info{
+      background:var(--info-bg);
+      color:var(--info);
+      border-color:#cfe0ff;
+    }
+
+    .status.good{
+      background:var(--good-bg);
+      color:var(--good);
+      border-color:#cdebd6;
+    }
+
+    .status.warn{
+      background:var(--warn-bg);
+      color:var(--warn);
+      border-color:#fed7aa;
+    }
+
+    .drop{
+      border:2px dashed #bfd0e6;
+      border-radius:18px;
+      min-height:330px;
+      background:#fbfdff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+      cursor:pointer;
+      position:relative;
+      padding:16px;
+    }
+
+    .drop.dragover{
+      background:#eef4ff;
+      border-color:#7aa2ff;
+    }
+
+    .drop input{display:none}
+
+    .placeholder{
+      text-align:center;
+      color:var(--muted);
+    }
+
+    .placeholder strong{
+      display:block;
+      color:var(--ink);
+      font-size:22px;
+      margin-bottom:6px;
+    }
+
+    #preview{
+      display:none;
+      max-width:100%;
+      max-height:290px;
+      border-radius:12px;
+      box-shadow:0 8px 20px rgba(20,32,51,.08);
+    }
+
+    .row{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-top:16px;
+      margin-bottom:16px;
+    }
+
+    button{
+      border:0;
+      border-radius:14px;
+      padding:14px 20px;
+      background:var(--brand);
+      color:#fff;
+      font-weight:700;
+      font-size:16px;
+      cursor:pointer;
+    }
+
+    button.secondary{
+      background:#fff;
+      color:var(--ink);
+      border:1px solid var(--line);
+    }
+
+    button:disabled{
+      opacity:.5;
+      cursor:not-allowed;
+    }
+
+    .fields{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:14px;
+    }
+
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:7px;
+    }
+
+    .field.span2{
+      grid-column:1 / -1;
+    }
+
+    .field label{
+      font-size:12px;
+      font-weight:800;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      color:#607086;
+    }
+
+    .field input,
+    .field textarea{
+      width:100%;
+      padding:14px 14px;
+      border-radius:14px;
+      border:1px solid var(--line);
+      font:inherit;
+      color:var(--ink);
+      background:#fff;
+    }
+
+    .field textarea{
+      min-height:110px;
+      resize:vertical;
+    }
+
+    h3{
+      margin:18px 0 10px;
+      font-size:20px;
+    }
+
+    .match{
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:#fbfdff;
+      padding:12px 14px;
+      margin-top:10px;
+      line-height:1.45;
+    }
+
+    .match .meta{
+      color:var(--muted);
+      font-size:14px;
+      margin-top:4px;
+    }
+
+    .chatlog{
+      min-height:360px;
+      max-height:560px;
+      overflow:auto;
+      margin-bottom:14px;
+      padding-right:4px;
+    }
+
+    .msg{
+      padding:12px 14px;
+      border-radius:14px;
+      margin-bottom:10px;
+      white-space:pre-wrap;
+      line-height:1.45;
+      word-break:break-word;
+    }
+
+    .msg.assistant{
+      background:#f8fafc;
+      border:1px solid var(--line);
+    }
+
+    .msg.user{
+      background:var(--brand-soft);
+      margin-left:36px;
+    }
+
+    .compose{
+      display:flex;
+      gap:12px;
+      align-items:stretch;
+    }
+
+    .compose textarea{
+      flex:1;
+      min-height:96px;
+      padding:14px;
+      border-radius:14px;
+      border:1px solid var(--line);
+      font:inherit;
+      resize:vertical;
+    }
+
+    .hint{
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.45;
+      margin-top:10px;
+    }
+
+    @media (max-width: 900px){
+      .grid{grid-template-columns:1fr}
+      .fields{grid-template-columns:1fr}
+      .field.span2{grid-column:auto}
+      h1{font-size:40px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Image Catalog Demo</h1>
+    <p class="lead">Upload an image, get structured AI suggestions, see likely catalog matches, and ask follow-up questions.</p>
+
+    <div class="grid">
+      <div class="card">
+        <div id="status" class="status info">Ready. Upload an image to begin.</div>
+
+        <label class="drop" id="dropZone" for="fileInput">
+          <img id="preview" alt="Preview">
+          <div id="placeholder" class="placeholder">
+            <strong>Click or drop an image here</strong>
+            PNG, JPG, or WEBP
+          </div>
+          <input id="fileInput" type="file" accept="image/*">
+        </label>
+
+        <div class="row">
+          <button id="analyzeBtn" disabled>Analyze</button>
+          <button id="clearBtn" class="secondary" type="button">Clear</button>
+        </div>
+
+        <div class="fields">
+          <div class="field">
+            <label for="item_type">Type</label>
+            <input id="item_type" />
+          </div>
+
+          <div class="field">
+            <label for="possible_make">Brand / Make</label>
+            <input id="possible_make" />
+          </div>
+
+          <div class="field">
+            <label for="possible_model">Model</label>
+            <input id="possible_model" />
+          </div>
+
+          <div class="field">
+            <label for="possible_caliber">Caliber</label>
+            <input id="possible_caliber" />
+          </div>
+
+          <div class="field span2">
+            <label for="visible_markings">Visible Markings</label>
+            <input id="visible_markings" />
+          </div>
+
+          <div class="field span2">
+            <label for="notes">Notes</label>
+            <textarea id="notes"></textarea>
+          </div>
+        </div>
+
+        <h3>Catalog Matches</h3>
+        <div id="matches">No matches yet.</div>
+      </div>
+
+      <div class="card">
+        <div id="chatLog" class="chatlog">
+          <div class="msg assistant">Hello. Upload an image and analyze it, then ask:
+- What is the best match?
+- Summarize the visible characteristics.
+- What should a reviewer verify manually?</div>
+        </div>
+
+        <div class="compose">
+          <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
+          <button id="sendBtn" type="button">Send</button>
+        </div>
+
+        <div class="hint">This chat uses the extracted fields and returned matches from the current analysis.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      file: null,
+      extracted: null,
+      matches: []
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    const els = {
+      status: $("status"),
+      fileInput: $("fileInput"),
+      dropZone: $("dropZone"),
+      preview: $("preview"),
+      placeholder: $("placeholder"),
+      analyzeBtn: $("analyzeBtn"),
+      clearBtn: $("clearBtn"),
+      item_type: $("item_type"),
+      possible_make: $("possible_make"),
+      possible_model: $("possible_model"),
+      possible_caliber: $("possible_caliber"),
+      visible_markings: $("visible_markings"),
+      notes: $("notes"),
+      matches: $("matches"),
+      chatLog: $("chatLog"),
+      chatInput: $("chatInput"),
+      sendBtn: $("sendBtn")
+    };
+
+    function setStatus(message, kind = "info") {
+      els.status.className = "status " + kind;
+      els.status.textContent = message;
+    }
+
+    function addMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+      div.textContent = text;
+      els.chatLog.appendChild(div);
+      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    }
+
+    function resetFields() {
+      state.file = null;
+      state.extracted = null;
+      state.matches = [];
+
+      els.fileInput.value = "";
+      els.preview.src = "";
+      els.preview.style.display = "none";
+      els.placeholder.style.display = "block";
+      els.analyzeBtn.disabled = true;
+
+      els.item_type.value = "";
+      els.possible_make.value = "";
+      els.possible_model.value = "";
+      els.possible_caliber.value = "";
+      els.visible_markings.value = "";
+      els.notes.value = "";
+      els.matches.textContent = "No matches yet.";
+
+      setStatus("Ready. Upload an image to begin.", "info");
+    }
+
+    function renderMatches(matches) {
+      if (!matches || !matches.length) {
+        els.matches.textContent = "No matches found.";
+        return;
+      }
+
+      els.matches.innerHTML = "";
+
+      matches.forEach((m) => {
+        const div = document.createElement("div");
+        div.className = "match";
+        div.innerHTML = `
+          <strong>${escapeHtml(m.make || "")} ${escapeHtml(m.model || "")}</strong>
+          <div class="meta">${escapeHtml(m.category || "")} • ${escapeHtml(m.caliber || "")} • score ${Number(m.score || 0).toFixed(2)}</div>
+          <div>${escapeHtml(m.description || "")}</div>
+        `;
+        els.matches.appendChild(div);
+      });
+   
