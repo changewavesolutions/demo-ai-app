@@ -1,89 +1,293 @@
-[
-  {
-    "reference_id": "CAT-1001",
-    "make": "Glock",
-    "model": "19",
-    "category": "Handgun",
-    "caliber": "9mm",
-    "description": "Compact 9mm semi-automatic pistol entry used for demonstration catalog matching.",
-    "aliases": [
-      "G19",
-      "Glock 19 Gen 5",
-      "Glock 19 Gen 4"
-    ],
-    "known_markings": [
-      "GLOCK",
-      "19",
-      "AUSTRIA"
-    ]
-  },
-  {
-    "reference_id": "CAT-1002",
-    "make": "Smith & Wesson",
-    "model": "M&P9",
-    "category": "Handgun",
-    "caliber": "9mm",
-    "description": "Demonstration entry for a polymer-framed 9mm handgun in the catalog.",
-    "aliases": [
-      "M and P 9",
-      "M&P 9",
-      "M2.0"
-    ],
-    "known_markings": [
-      "SMITH & WESSON",
-      "M&P",
-      "9MM"
-    ]
-  },
-  {
-    "reference_id": "CAT-1003",
-    "make": "Ruger",
-    "model": "10/22",
-    "category": "Rifle",
-    "caliber": ".22 LR",
-    "description": "Demonstration entry for a .22 LR rifle frequently used in sample datasets.",
-    "aliases": [
-      "Ruger 10 22",
-      "10-22"
-    ],
-    "known_markings": [
-      "RUGER",
-      "10/22",
-      ".22 LR"
-    ]
-  },
-  {
-    "reference_id": "CAT-1004",
-    "make": "Sig Sauer",
-    "model": "P320",
-    "category": "Handgun",
-    "caliber": "9mm",
-    "description": "Demonstration catalog record for a modular striker-fired handgun.",
-    "aliases": [
-      "SIG P320",
-      "P 320"
-    ],
-    "known_markings": [
-      "SIG SAUER",
-      "P320",
-      "9MM"
-    ]
-  },
-  {
-    "reference_id": "CAT-1005",
-    "make": "Colt",
-    "model": "Python",
-    "category": "Revolver",
-    "caliber": ".357 Magnum",
-    "description": "Demonstration revolver record in the sample catalog.",
-    "aliases": [
-      "Colt Python 357",
-      "Python 357"
-    ],
-    "known_markings": [
-      "COLT",
-      "PYTHON",
-      ".357"
-    ]
-  }
-]
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Image Catalog Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f6f8fb; color:#142033; margin:0; }
+    .wrap { max-width:1100px; margin:0 auto; padding:24px; }
+    h1 { margin:0 0 10px; }
+    .lead { color:#526173; margin-bottom:20px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .card { background:white; border:1px solid #dbe4ef; border-radius:16px; padding:18px; }
+    .drop {
+      border:2px dashed #b9cbe2; border-radius:14px; min-height:240px;
+      display:flex; align-items:center; justify-content:center; cursor:pointer;
+      background:#fbfdff; overflow:hidden;
+    }
+    .drop input { display:none; }
+    #preview { max-width:100%; max-height:260px; display:none; }
+    .row { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+    button {
+      border:0; border-radius:10px; padding:11px 14px; background:#2f6fed; color:white;
+      font-weight:700; cursor:pointer;
+    }
+    button.secondary { background:white; color:#142033; border:1px solid #dbe4ef; }
+    .status {
+      background:#eef5ff; color:#1f4b99; border:1px solid #d7e4ff;
+      padding:10px 12px; border-radius:12px; margin-bottom:12px;
+    }
+    .fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .field label { font-size:12px; text-transform:uppercase; color:#5f7085; font-weight:700; }
+    .field input, .field textarea {
+      padding:10px 12px; border:1px solid #dbe4ef; border-radius:10px; font:inherit;
+    }
+    .field textarea { min-height:90px; }
+    .span2 { grid-column:1 / -1; }
+    .match {
+      border:1px solid #dbe4ef; border-radius:12px; padding:10px 12px; margin-top:10px; background:#fbfdff;
+    }
+    .chatlog {
+      min-height:320px; max-height:500px; overflow:auto; margin-bottom:12px;
+    }
+    .msg {
+      padding:10px 12px; border-radius:12px; margin-bottom:10px; white-space:pre-wrap; line-height:1.4;
+    }
+    .assistant { background:#f7f9fc; border:1px solid #dbe4ef; }
+    .user { background:#eef4ff; margin-left:40px; }
+    .compose { display:flex; gap:10px; }
+    .compose textarea {
+      flex:1; min-height:56px; padding:10px 12px; border:1px solid #dbe4ef; border-radius:10px; font:inherit;
+    }
+    @media (max-width: 900px) {
+      .grid, .fields { grid-template-columns:1fr; }
+      .span2 { grid-column:auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Image Catalog Demo</h1>
+    <div class="lead">Upload an image, get structured AI suggestions, see likely catalog matches, and ask follow-up questions.</div>
+
+    <div class="grid">
+      <div class="card">
+        <div id="status" class="status">Ready. Upload an image to begin.</div>
+
+        <label class="drop" for="fileInput" id="dropZone">
+          <img id="preview" alt="Preview">
+          <div id="placeholder">Click or drop an image here</div>
+          <input id="fileInput" type="file" accept="image/*">
+        </label>
+
+        <div class="row">
+          <button id="analyzeBtn" disabled>Analyze</button>
+          <button id="clearBtn" class="secondary">Clear</button>
+        </div>
+
+        <div class="fields">
+          <div class="field">
+            <label>Type</label>
+            <input id="item_type">
+          </div>
+          <div class="field">
+            <label>Brand / Make</label>
+            <input id="possible_make">
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <input id="possible_model">
+          </div>
+          <div class="field">
+            <label>Caliber</label>
+            <input id="possible_caliber">
+          </div>
+          <div class="field span2">
+            <label>Visible markings</label>
+            <input id="visible_markings">
+          </div>
+          <div class="field span2">
+            <label>Notes</label>
+            <textarea id="notes"></textarea>
+          </div>
+        </div>
+
+        <h3>Catalog matches</h3>
+        <div id="matches">No matches yet.</div>
+      </div>
+
+      <div class="card">
+        <div class="chatlog" id="chatLog">
+          <div class="msg assistant">Hello. Upload an image and analyze it, then ask:
+- What is the best match?
+- Summarize the visible characteristics.
+- What should a reviewer verify manually?</div>
+        </div>
+
+        <div class="compose">
+          <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = { file: null, extracted: null, matches: [] };
+
+    const $ = (id) => document.getElementById(id);
+
+    const els = {
+      status: $("status"),
+      fileInput: $("fileInput"),
+      dropZone: $("dropZone"),
+      preview: $("preview"),
+      placeholder: $("placeholder"),
+      analyzeBtn: $("analyzeBtn"),
+      clearBtn: $("clearBtn"),
+      item_type: $("item_type"),
+      possible_make: $("possible_make"),
+      possible_model: $("possible_model"),
+      possible_caliber: $("possible_caliber"),
+      visible_markings: $("visible_markings"),
+      notes: $("notes"),
+      matches: $("matches"),
+      chatLog: $("chatLog"),
+      chatInput: $("chatInput"),
+      sendBtn: $("sendBtn"),
+    };
+
+    function setStatus(text) {
+      els.status.textContent = text;
+    }
+
+    function addMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+      div.textContent = text;
+      els.chatLog.appendChild(div);
+      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    }
+
+    function resetAll() {
+      state.file = null;
+      state.extracted = null;
+      state.matches = [];
+      els.fileInput.value = "";
+      els.preview.src = "";
+      els.preview.style.display = "none";
+      els.placeholder.style.display = "block";
+      els.analyzeBtn.disabled = true;
+      els.item_type.value = "";
+      els.possible_make.value = "";
+      els.possible_model.value = "";
+      els.possible_caliber.value = "";
+      els.visible_markings.value = "";
+      els.notes.value = "";
+      els.matches.textContent = "No matches yet.";
+      setStatus("Ready. Upload an image to begin.");
+    }
+
+    function renderMatches(matches) {
+      if (!matches || !matches.length) {
+        els.matches.textContent = "No matches found.";
+        return;
+      }
+      els.matches.innerHTML = "";
+      matches.forEach((m) => {
+        const div = document.createElement("div");
+        div.className = "match";
+        div.innerHTML = `
+          <strong>${m.make} ${m.model}</strong><br>
+          ${m.category || ""} • ${m.caliber || ""} • score ${Number(m.score || 0).toFixed(2)}<br>
+          ${m.description || ""}
+        `;
+        els.matches.appendChild(div);
+      });
+    }
+
+    function handleFile(file) {
+      if (!file) return;
+      state.file = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        els.preview.src = e.target.result;
+        els.preview.style.display = "block";
+        els.placeholder.style.display = "none";
+        els.analyzeBtn.disabled = false;
+        setStatus("Image loaded. Click Analyze.");
+      };
+      reader.readAsDataURL(file);
+    }
+
+    els.fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
+    els.dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+    });
+    els.dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith("image/")) handleFile(file);
+    });
+
+    els.clearBtn.addEventListener("click", resetAll);
+
+    els.analyzeBtn.addEventListener("click", async () => {
+      if (!state.file) return;
+      const fd = new FormData();
+      fd.append("image", state.file);
+      setStatus("Analyzing image...");
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          body: fd
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Analyze failed");
+
+        state.extracted = data.extracted || {};
+        state.matches = data.matches || [];
+
+        els.item_type.value = state.extracted.item_type || "";
+        els.possible_make.value = state.extracted.possible_make || "";
+        els.possible_model.value = state.extracted.possible_model || "";
+        els.possible_caliber.value = state.extracted.possible_caliber || "";
+        els.visible_markings.value = (state.extracted.visible_markings || []).join(", ");
+        els.notes.value = state.extracted.notes || "";
+
+        renderMatches(state.matches);
+        setStatus("Analysis complete.");
+        addMessage("assistant", "Image analyzed. I now have extracted fields and likely catalog matches.");
+      } catch (err) {
+        setStatus("Error: " + err.message);
+      }
+    });
+
+    async function sendChat() {
+      const text = els.chatInput.value.trim();
+      if (!text) return;
+      addMessage("user", text);
+      els.chatInput.value = "";
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            extracted: state.extracted,
+            matches: state.matches
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Chat failed");
+        addMessage("assistant", data.answer || "No response");
+      } catch (err) {
+        addMessage("assistant", "Error: " + err.message);
+      }
+    }
+
+    els.sendBtn.addEventListener("click", sendChat);
+    els.chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    resetAll();
+  </script>
+</body>
+</html>
