@@ -7,15 +7,15 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
-PUBLIC_DIR = BASE_DIR / "public"
-DATA_PATH = BASE_DIR / "data" / "catalog.json"
+INDEX_PATH = BASE_DIR / "index.html"
+DATA_PATH = BASE_DIR / "catalog.json"
 
 app = FastAPI(title="Client Demo Live")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +23,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="public")
 
 def get_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
@@ -98,12 +97,13 @@ VISION_SCHEMA = {
 
 @app.get("/")
 async def root() -> FileResponse:
-    return FileResponse(PUBLIC_DIR / "index.html")
+    return FileResponse(INDEX_PATH)
 
 @app.post("/api/analyze")
 async def analyze(image: UploadFile = File(...)) -> Dict[str, Any]:
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload an image file.")
+
     content = await image.read()
     image_b64 = base64.b64encode(content).decode("utf-8")
     client = get_client()
@@ -116,7 +116,7 @@ async def analyze(image: UploadFile = File(...)) -> Dict[str, Any]:
 
     try:
         response = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
             input=[{
                 "role": "user",
                 "content": [
@@ -198,7 +198,7 @@ async def chat(payload: ChatRequest) -> Dict[str, Any]:
 
     try:
         first = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
             input=[
                 {"role": "system", "content": system_text},
                 {"role": "user", "content": json.dumps(user_context)}
@@ -223,7 +223,7 @@ async def chat(payload: ChatRequest) -> Dict[str, Any]:
 
     try:
         second = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
             previous_response_id=first.id,
             input=followup_inputs,
         )
