@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Demo</title>
+</head>
+<body>
+
+<h1>Image Catalog Demo</h1>
+
+<input type="file" id="imageInput">
+<button onclick="analyze()">Analyze</button>
+
+<h3>Date Entered</h3>
+<input id="date">
+
+<h3>Serial Number (manual)</h3>
+<input id="serial">
+
+<h3>Description</h3>
+<textarea id="description"></textarea>
+
+<script>
+async function analyze() {
+  const file = document.getElementById("imageInput").files[0];
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch("/analyze", {
+    method: "POST",
+    body: formData
+  });
+
+  const data = await res.json();
+
+  document.getElementById("date").value = data.date_entered;
+  document.getElementById("description").value = data.result.description;
+}
+</script>
+
+</body>
+</html>
