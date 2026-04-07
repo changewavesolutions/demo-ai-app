@@ -34,14 +34,8 @@ def get_client() -> OpenAI:
 
 
 def get_model_candidates() -> List[str]:
-    raw = os.getenv(
-        "OPENAI_MODEL_CANDIDATES",
-        "gpt-4o-mini,gpt-4.1-mini,gpt-5.4-mini"
-    )
-    models = [m.strip() for m in raw.split(",") if m.strip()]
-    if not models:
-        models = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4-mini"]
-    return models
+    raw = os.getenv("OPENAI_MODEL_CANDIDATES", "gpt-4o-mini,gpt-4o")
+    return [m.strip() for m in raw.split(",") if m.strip()]
 
 
 def load_catalog() -> List[Dict[str, Any]]:
@@ -105,7 +99,11 @@ def extract_first_json_block(text: str) -> Dict[str, Any]:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise ValueError(f"Model returned non-JSON output: {text[:500]}")
-    return json.loads(match.group(0))
+
+    try:
+        return json.loads(match.group(0))
+    except Exception as exc:
+        raise ValueError(f"Could not parse extracted JSON block: {exc}")
 
 
 VISION_SCHEMA = {
@@ -135,17 +133,12 @@ VISION_SCHEMA = {
 }
 
 
-def call_openai_for_analysis(
-    client: OpenAI,
-    model: str,
-    image_content_type: str,
-    image_b64: str
-) -> Dict[str, Any]:
+def call_openai_for_analysis(client: OpenAI, model: str, image_content_type: str, image_b64: str) -> Dict[str, Any]:
     prompt = (
-        "Analyze the uploaded product image and return only valid JSON that matches the schema. "
+        "Analyze the uploaded product image and return only valid JSON matching the schema. "
         "Infer likely item type, likely make, likely model, likely caliber, visible markings, confidence, and concise notes. "
         "If uncertain, lower confidence and explain uncertainty in notes. "
-        "Do not add markdown or commentary outside JSON."
+        "Return JSON only."
     )
 
     response = client.responses.create(
@@ -176,23 +169,15 @@ def call_openai_for_analysis(
     raw_text = getattr(response, "output_text", None)
     if not raw_text:
         raise ValueError("OpenAI returned no text output.")
+
     return extract_first_json_block(raw_text)
 
 
-def analyze_with_fallbacks(
-    client: OpenAI,
-    image_content_type: str,
-    image_b64: str
-) -> Dict[str, Any]:
+def analyze_with_fallbacks(client: OpenAI, image_content_type: str, image_b64: str) -> Dict[str, Any]:
     errors = []
     for model in get_model_candidates():
         try:
-            extracted = call_openai_for_analysis(
-                client=client,
-                model=model,
-                image_content_type=image_content_type,
-                image_b64=image_b64,
-            )
+            extracted = call_openai_for_analysis(client, model, image_content_type, image_b64)
             return {"model_used": model, "extracted": extracted}
         except Exception as exc:
             errors.append(f"{model}: {exc}")
@@ -206,47 +191,10 @@ class ChatRequest(BaseModel):
     matches: Optional[List[Dict[str, Any]]] = None
 
 
-def chat_with_fallbacks(client: OpenAI, payload: ChatRequest) -> Dict[str, Any]:
-    system_text = (
-        "You are a grounded catalog assistant. "
-        "Use the extracted fields and provided catalog matches. "
-        "Do not invent certainty. "
-        "Prefer the provided catalog matches over guesses."
-    )
-
-    user_context = {
-        "user_message": payload.message,
-        "current_extracted_fields": payload.extracted or {},
-        "current_catalog_matches": payload.matches or [],
-    }
-
-    errors = []
-    for model in get_model_candidates():
-        try:
-            response = client.responses.create(
-                model=model,
-                input=[
-                    {"role": "system", "content": system_text},
-                    {"role": "user", "content": json.dumps(user_context)}
-                ]
-            )
-            answer = getattr(response, "output_text", None)
-            if not answer:
-                raise ValueError("No chat output returned.")
-            return {"model_used": model, "answer": answer}
-        except Exception as exc:
-            errors.append(f"{model}: {exc}")
-
-    raise ValueError("All chat model attempts failed.\n" + "\n".join(errors))
-
-
 @app.get("/", response_class=HTMLResponse)
 async def root() -> HTMLResponse:
     if not INDEX_PATH.exists():
-        return HTMLResponse(
-            "<h1>index.html not found</h1><p>Please make sure index.html is in the top level of the repo.</p>",
-            status_code=500,
-        )
+        return HTMLResponse("<h1>index.html not found</h1>", status_code=500)
     return HTMLResponse(INDEX_PATH.read_text(encoding="utf-8"))
 
 
@@ -272,15 +220,10 @@ async def analyze(image: UploadFile = File(...)) -> Dict[str, Any]:
 
     content = await image.read()
     image_b64 = base64.b64encode(content).decode("utf-8")
-
     client = get_client()
 
     try:
-        result = analyze_with_fallbacks(
-            client=client,
-            image_content_type=image.content_type,
-            image_b64=image_b64,
-        )
+        result = analyze_with_fallbacks(client, image.content_type, image_b64)
         extracted = result["extracted"]
         matches = search_catalog_local(extracted, limit=5)
         return {
@@ -295,12 +238,35 @@ async def analyze(image: UploadFile = File(...)) -> Dict[str, Any]:
 @app.post("/api/chat")
 async def chat(payload: ChatRequest) -> Dict[str, Any]:
     client = get_client()
+    models = get_model_candidates()
+    errors = []
 
-    try:
-        result = chat_with_fallbacks(client, payload)
-        return {
-            "model_used": result["model_used"],
-            "answer": result["answer"],
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    system_text = (
+        "You are a grounded catalog assistant. "
+        "Use the extracted fields and provided catalog matches. "
+        "Do not invent certainty."
+    )
+
+    user_context = {
+        "user_message": payload.message,
+        "current_extracted_fields": payload.extracted or {},
+        "current_catalog_matches": payload.matches or [],
+    }
+
+    for model in models:
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": json.dumps(user_context)}
+                ]
+            )
+            answer = getattr(response, "output_text", None)
+            if not answer:
+                raise ValueError("No chat output returned.")
+            return {"model_used": model, "answer": answer}
+        except Exception as exc:
+            errors.append(f"{model}: {exc}")
+
+    raise HTTPException(status_code=500, detail="All chat model attempts failed.\n" + "\n".join(errors))
