@@ -1,393 +1,285 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Image Catalog Demo</title>
   <style>
-    :root{
-      --bg:#f5f8fc;
-      --card:#ffffff;
-      --ink:#142033;
-      --muted:#5b6b7f;
-      --line:#dbe4ef;
-      --brand:#2f6fed;
-      --brand-soft:#eef4ff;
-      --good:#166534;
-      --good-bg:#eefaf3;
-      --warn:#9a3412;
-      --warn-bg:#fff7ed;
-      --info:#1d4ed8;
-      --info-bg:#eff6ff;
-      --shadow:0 12px 28px rgba(20,32,51,.08);
-      --radius:18px;
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #1f2937;
     }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink)}
-    .wrap{max-width:1200px;margin:0 auto;padding:28px 20px 40px}
-    h1{margin:0 0 8px;font-size:54px;line-height:1;letter-spacing:-.03em}
-    .lead{color:var(--muted);font-size:18px;margin:0 0 24px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px}
-    .status{padding:14px 16px;border-radius:14px;border:1px solid var(--line);margin-bottom:16px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
-    .status.info{background:var(--info-bg);color:var(--info);border-color:#cfe0ff}
-    .status.good{background:var(--good-bg);color:var(--good);border-color:#cdebd6}
-    .status.warn{background:var(--warn-bg);color:var(--warn);border-color:#fed7aa}
-    .drop{border:2px dashed #bfd0e6;border-radius:18px;min-height:330px;background:#fbfdff;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;position:relative;padding:16px}
-    .drop.dragover{background:#eef4ff;border-color:#7aa2ff}
-    .drop input{display:none}
-    .placeholder{text-align:center;color:var(--muted)}
-    .placeholder strong{display:block;color:var(--ink);font-size:22px;margin-bottom:6px}
-    #preview{display:none;max-width:100%;max-height:290px;border-radius:12px;box-shadow:0 8px 20px rgba(20,32,51,.08)}
-    .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;margin-bottom:16px}
-    button{border:0;border-radius:14px;padding:14px 20px;background:var(--brand);color:#fff;font-weight:700;font-size:16px;cursor:pointer}
-    button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    .small{font-size:13px;color:var(--muted);margin-top:6px}
-    .fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-    .field{display:flex;flex-direction:column;gap:7px}
-    .field.span2{grid-column:1 / -1}
-    .field label{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#607086}
-    .field input,.field textarea{width:100%;padding:14px;border-radius:14px;border:1px solid var(--line);font:inherit;color:var(--ink);background:#fff}
-    .field textarea{min-height:110px;resize:vertical}
-    h3{margin:18px 0 10px;font-size:20px}
-    .match{border:1px solid var(--line);border-radius:14px;background:#fbfdff;padding:12px 14px;margin-top:10px;line-height:1.45}
-    .match .meta{color:var(--muted);font-size:14px;margin-top:4px}
-    .chatlog{min-height:360px;max-height:560px;overflow:auto;margin-bottom:14px;padding-right:4px}
-    .msg{padding:12px 14px;border-radius:14px;margin-bottom:10px;white-space:pre-wrap;line-height:1.45;word-break:break-word}
-    .msg.assistant{background:#f8fafc;border:1px solid var(--line)}
-    .msg.user{background:var(--brand-soft);margin-left:36px}
-    .compose{display:flex;gap:12px;align-items:stretch}
-    .compose textarea{flex:1;min-height:96px;padding:14px;border-radius:14px;border:1px solid var(--line);font:inherit;resize:vertical}
-    .hint{color:var(--muted);font-size:14px;line-height:1.45;margin-top:10px}
-    @media (max-width:900px){
-      .grid{grid-template-columns:1fr}
-      .fields{grid-template-columns:1fr}
-      .field.span2{grid-column:auto}
-      h1{font-size:40px}
+
+    h1 {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 18px;
+      color: #4b5563;
+    }
+
+    .card {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 24px;
+      margin-top: 24px;
+      background: #fafafa;
+    }
+
+    .error-box {
+      display: none;
+      margin-bottom: 20px;
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid #f5c2c7;
+      background: #fef2f2;
+      color: #991b1b;
+      font-size: 18px;
+    }
+
+    .preview-box {
+      border: 2px dashed #cbd5e1;
+      border-radius: 16px;
+      min-height: 320px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: white;
+      margin-bottom: 20px;
+    }
+
+    .preview-box img {
+      max-width: 100%;
+      max-height: 420px;
+      display: none;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    button {
+      font-size: 18px;
+      padding: 14px 28px;
+      border-radius: 14px;
+      border: 1px solid #d1d5db;
+      cursor: pointer;
+      background: white;
+    }
+
+    button.primary {
+      background: #2563eb;
+      color: white;
+      border: none;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .field {
+      margin-bottom: 18px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 14px;
+      font-weight: bold;
+      color: #6b7280;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .field input, .field textarea {
+      width: 100%;
+      padding: 16px;
+      border-radius: 14px;
+      border: 1px solid #d1d5db;
+      font-size: 18px;
+      box-sizing: border-box;
+      background: white;
+    }
+
+    .upload-row {
+      margin: 20px 0;
     }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Image Catalog Demo</h1>
-    <p class="lead">Upload an image, get structured AI suggestions, see likely catalog matches, and ask follow-up questions.</p>
+  <h1>Image Catalog Demo</h1>
+  <p>Upload an image, get structured AI suggestions, see likely catalog matches, and ask follow-up questions.</p>
 
-    <div class="grid">
-      <div class="card">
-        <div id="status" class="status info">Ready. Upload an image to begin.</div>
+  <div class="card">
+    <div id="errorBox" class="error-box"></div>
 
-        <label class="drop" id="dropZone" for="fileInput">
-          <img id="preview" alt="Preview">
-          <div id="placeholder" class="placeholder">
-            <strong>Click or drop an image here</strong>
-            PNG, JPG, or WEBP
-          </div>
-          <input id="fileInput" type="file" accept="image/*">
-        </label>
+    <div class="upload-row">
+      <input type="file" id="imageInput" accept="image/*" />
+    </div>
 
-        <div class="row">
-          <button id="analyzeBtn" disabled>Analyze</button>
-          <button id="clearBtn" class="secondary" type="button">Clear</button>
-        </div>
+    <div class="preview-box">
+      <img id="previewImage" alt="Preview" />
+      <span id="previewPlaceholder">No image selected</span>
+    </div>
 
-        <div class="small" id="modelInfo"></div>
+    <div class="button-row">
+      <button id="analyzeBtn" class="primary">Analyze</button>
+      <button id="clearBtn" type="button">Clear</button>
+    </div>
 
-        <div class="fields">
-          <div class="field">
-            <label for="item_type">Type</label>
-            <input id="item_type" />
-          </div>
-          <div class="field">
-            <label for="possible_make">Brand / Make</label>
-            <input id="possible_make" />
-          </div>
-          <div class="field">
-            <label for="possible_model">Model</label>
-            <input id="possible_model" />
-          </div>
-          <div class="field">
-            <label for="possible_caliber">Caliber</label>
-            <input id="possible_caliber" />
-          </div>
-          <div class="field span2">
-            <label for="visible_markings">Visible Markings</label>
-            <input id="visible_markings" />
-          </div>
-          <div class="field span2">
-            <label for="notes">Notes</label>
-            <textarea id="notes"></textarea>
-          </div>
-        </div>
+    <div class="field">
+      <label for="type">Type</label>
+      <input id="type" type="text" readonly />
+    </div>
 
-        <h3>Catalog Matches</h3>
-        <div id="matches">No matches yet.</div>
-      </div>
+    <div class="field">
+      <label for="brand_make">Brand / Make</label>
+      <input id="brand_make" type="text" readonly />
+    </div>
 
-      <div class="card">
-        <div id="chatLog" class="chatlog">
-          <div class="msg assistant">Hello. Upload an image and analyze it, then ask:
-- What is the best match?
-- Summarize the visible characteristics.
-- What should a reviewer verify manually?</div>
-        </div>
+    <div class="field">
+      <label for="model">Model</label>
+      <input id="model" type="text" readonly />
+    </div>
 
-        <div class="compose">
-          <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
-          <button id="sendBtn" type="button">Send</button>
-        </div>
+    <div class="field">
+      <label for="caliber">Caliber</label>
+      <input id="caliber" type="text" readonly />
+    </div>
 
-        <div class="hint">This chat uses the extracted fields and returned matches from the current analysis.</div>
-      </div>
+    <div class="field">
+      <label for="notes">Notes</label>
+      <textarea id="notes" rows="4" readonly></textarea>
     </div>
   </div>
 
   <script>
-    const state = {
-      file: null,
-      extracted: null,
-      matches: []
-    };
+    const imageInput = document.getElementById("imageInput");
+    const previewImage = document.getElementById("previewImage");
+    const previewPlaceholder = document.getElementById("previewPlaceholder");
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const errorBox = document.getElementById("errorBox");
 
-    const $ = (id) => document.getElementById(id);
+    const typeField = document.getElementById("type");
+    const brandMakeField = document.getElementById("brand_make");
+    const modelField = document.getElementById("model");
+    const caliberField = document.getElementById("caliber");
+    const notesField = document.getElementById("notes");
 
-    const els = {
-      status: $("status"),
-      fileInput: $("fileInput"),
-      dropZone: $("dropZone"),
-      preview: $("preview"),
-      placeholder: $("placeholder"),
-      analyzeBtn: $("analyzeBtn"),
-      clearBtn: $("clearBtn"),
-      modelInfo: $("modelInfo"),
-      item_type: $("item_type"),
-      possible_make: $("possible_make"),
-      possible_model: $("possible_model"),
-      possible_caliber: $("possible_caliber"),
-      visible_markings: $("visible_markings"),
-      notes: $("notes"),
-      matches: $("matches"),
-      chatLog: $("chatLog"),
-      chatInput: $("chatInput"),
-      sendBtn: $("sendBtn")
-    };
-
-    function setStatus(message, kind = "info") {
-      els.status.className = "status " + kind;
-      els.status.textContent = message;
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.style.display = "block";
     }
 
-    function addMessage(role, text) {
-      const div = document.createElement("div");
-      div.className = "msg " + role;
-      div.textContent = text;
-      els.chatLog.appendChild(div);
-      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    function clearError() {
+      errorBox.textContent = "";
+      errorBox.style.display = "none";
     }
 
-    function escapeHtml(str) {
-      return String(str ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
+    function clearResults() {
+      typeField.value = "";
+      brandMakeField.value = "";
+      modelField.value = "";
+      caliberField.value = "";
+      notesField.value = "";
     }
 
-    function resetFields() {
-      state.file = null;
-      state.extracted = null;
-      state.matches = [];
-
-      els.fileInput.value = "";
-      els.preview.src = "";
-      els.preview.style.display = "none";
-      els.placeholder.style.display = "block";
-      els.analyzeBtn.disabled = true;
-      els.modelInfo.textContent = "";
-
-      els.item_type.value = "";
-      els.possible_make.value = "";
-      els.possible_model.value = "";
-      els.possible_caliber.value = "";
-      els.visible_markings.value = "";
-      els.notes.value = "";
-      els.matches.textContent = "No matches yet.";
-
-      setStatus("Ready. Upload an image to begin.", "info");
+    function clearAll() {
+      imageInput.value = "";
+      previewImage.src = "";
+      previewImage.style.display = "none";
+      previewPlaceholder.style.display = "inline";
+      clearError();
+      clearResults();
     }
 
-    function renderMatches(matches) {
-      if (!matches || !matches.length) {
-        els.matches.textContent = "No matches found.";
+    imageInput.addEventListener("change", () => {
+      clearError();
+      clearResults();
+
+      const file = imageInput.files[0];
+      if (!file) {
+        previewImage.src = "";
+        previewImage.style.display = "none";
+        previewPlaceholder.style.display = "inline";
         return;
       }
 
-      els.matches.innerHTML = "";
-
-      matches.forEach((m) => {
-        const div = document.createElement("div");
-        div.className = "match";
-        div.innerHTML = `
-          <strong>${escapeHtml(m.make || "")} ${escapeHtml(m.model || "")}</strong>
-          <div class="meta">${escapeHtml(m.category || "")} • ${escapeHtml(m.caliber || "")} • score ${Number(m.score || 0).toFixed(2)}</div>
-          <div>${escapeHtml(m.description || "")}</div>
-        `;
-        els.matches.appendChild(div);
-      });
-    }
-
-    function handleFile(file) {
-      if (!file) return;
-      if (!file.type.startsWith("image/")) {
-        setStatus("Please choose an image file.", "warn");
-        return;
-      }
-
-      state.file = file;
       const reader = new FileReader();
-
       reader.onload = (e) => {
-        els.preview.src = e.target.result;
-        els.preview.style.display = "block";
-        els.placeholder.style.display = "none";
-        els.analyzeBtn.disabled = false;
-        setStatus("Image loaded. Click Analyze.", "info");
+        previewImage.src = e.target.result;
+        previewImage.style.display = "block";
+        previewPlaceholder.style.display = "none";
       };
-
       reader.readAsDataURL(file);
-    }
+    });
 
-    async function parseResponse(res) {
-      const text = await res.text();
+    clearBtn.addEventListener("click", clearAll);
 
-      let data = null;
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = null;
-      }
+    analyzeBtn.addEventListener("click", async () => {
+      clearError();
+      clearResults();
 
-      if (!res.ok) {
-        if (data && data.detail) {
-          throw new Error(data.detail);
-        }
-        throw new Error(text || `Request failed with status ${res.status}`);
-      }
-
-      if (!data) {
-        throw new Error("Server returned non-JSON output: " + text.slice(0, 300));
-      }
-
-      return data;
-    }
-
-    async function analyzeImage() {
-      if (!state.file) {
-        setStatus("Please upload an image first.", "warn");
+      const file = imageInput.files[0];
+      if (!file) {
+        showError("Please select an image first.");
         return;
       }
 
       const formData = new FormData();
-      formData.append("image", state.file);
+      formData.append("image", file);
 
-      setStatus("Analyzing image...", "info");
-      els.analyzeBtn.disabled = true;
-      els.modelInfo.textContent = "";
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = "Analyzing...";
 
       try {
-        const res = await fetch("/api/analyze", {
+        const response = await fetch("/analyze", {
           method: "POST",
           body: formData
         });
 
-        const data = await parseResponse(res);
+        const rawText = await response.text();
 
-        state.extracted = data.extracted || {};
-        state.matches = data.matches || [];
-
-        els.item_type.value = state.extracted.item_type || "";
-        els.possible_make.value = state.extracted.possible_make || "";
-        els.possible_model.value = state.extracted.possible_model || "";
-        els.possible_caliber.value = state.extracted.possible_caliber || "";
-        els.visible_markings.value = (state.extracted.visible_markings || []).join(", ");
-        els.notes.value = state.extracted.notes || "";
-
-        renderMatches(state.matches);
-
-        if (data.model_used) {
-          els.modelInfo.textContent = "Model used: " + data.model_used;
+        if (!rawText) {
+          throw new Error("Server returned an empty response.");
         }
 
-        setStatus("Analysis complete.", "good");
-        addMessage("assistant", "Image analyzed. I now have extracted fields and likely catalog matches.");
-      } catch (err) {
-        setStatus("Error: " + err.message, "warn");
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (parseError) {
+          console.error("Non-JSON response:", rawText);
+          throw new Error("Server did not return valid JSON.");
+        }
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || `Request failed with status ${response.status}`);
+        }
+
+        const result = data.result || {};
+        typeField.value = result.type || "";
+        brandMakeField.value = result.brand_make || "";
+        modelField.value = result.model || "";
+        caliberField.value = result.caliber || "";
+        notesField.value = result.notes || "";
+      } catch (error) {
+        console.error(error);
+        showError(error.message || "Something went wrong during analysis.");
       } finally {
-        els.analyzeBtn.disabled = false;
-      }
-    }
-
-    async function sendChat() {
-      const text = els.chatInput.value.trim();
-      if (!text) return;
-
-      addMessage("user", text);
-      els.chatInput.value = "";
-
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: text,
-            extracted: state.extracted,
-            matches: state.matches
-          })
-        });
-
-        const data = await parseResponse(res);
-
-        if (data.model_used) {
-          els.modelInfo.textContent = "Model used: " + data.model_used;
-        }
-
-        addMessage("assistant", data.answer || "No response.");
-      } catch (err) {
-        addMessage("assistant", "Error: " + err.message);
-      }
-    }
-
-    els.fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
-
-    els.dropZone.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      els.dropZone.classList.add("dragover");
-    });
-
-    els.dropZone.addEventListener("dragleave", () => {
-      els.dropZone.classList.remove("dragover");
-    });
-
-    els.dropZone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      els.dropZone.classList.remove("dragover");
-      const file = e.dataTransfer.files[0];
-      handleFile(file);
-    });
-
-    els.analyzeBtn.addEventListener("click", analyzeImage);
-    els.clearBtn.addEventListener("click", resetFields);
-    els.sendBtn.addEventListener("click", sendChat);
-
-    els.chatInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        sendChat();
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = "Analyze";
       }
     });
-
-    resetFields();
   </script>
 </body>
 </html>
