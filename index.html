@@ -4,282 +4,109 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Image Catalog Demo</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 900px;
-      margin: 40px auto;
-      padding: 0 20px;
-      color: #1f2937;
-    }
-
-    h1 {
-      font-size: 48px;
-      margin-bottom: 10px;
-    }
-
-    p {
-      font-size: 18px;
-      color: #4b5563;
-    }
-
-    .card {
-      border: 1px solid #e5e7eb;
-      border-radius: 18px;
-      padding: 24px;
-      margin-top: 24px;
-      background: #fafafa;
-    }
-
-    .error-box {
-      display: none;
-      margin-bottom: 20px;
-      padding: 16px;
-      border-radius: 12px;
-      border: 1px solid #f5c2c7;
-      background: #fef2f2;
-      color: #991b1b;
-      font-size: 18px;
-    }
-
-    .preview-box {
-      border: 2px dashed #cbd5e1;
-      border-radius: 16px;
-      min-height: 320px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      background: white;
-      margin-bottom: 20px;
-    }
-
-    .preview-box img {
-      max-width: 100%;
-      max-height: 420px;
-      display: none;
-    }
-
-    .button-row {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    button {
-      font-size: 18px;
-      padding: 14px 28px;
-      border-radius: 14px;
-      border: 1px solid #d1d5db;
-      cursor: pointer;
-      background: white;
-    }
-
-    button.primary {
-      background: #2563eb;
-      color: white;
-      border: none;
-    }
-
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    .field {
-      margin-bottom: 18px;
-    }
-
-    .field label {
-      display: block;
-      font-size: 14px;
-      font-weight: bold;
-      color: #6b7280;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .field input, .field textarea {
-      width: 100%;
-      padding: 16px;
-      border-radius: 14px;
-      border: 1px solid #d1d5db;
-      font-size: 18px;
-      box-sizing: border-box;
-      background: white;
-    }
-
-    .upload-row {
-      margin: 20px 0;
-    }
-  </style>
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <h1>Image Catalog Demo</h1>
-  <p>Upload an image, get structured AI suggestions, see likely catalog matches, and ask follow-up questions.</p>
+  <div class="page">
+    <h1>Image Catalog Demo</h1>
+    <p class="subtitle">Upload an image to extract visible item details and enrich them from public sources.</p>
 
-  <div class="card">
-    <div id="errorBox" class="error-box"></div>
+    <div class="card">
+      <div id="errorBox" class="error"></div>
 
-    <div class="upload-row">
       <input type="file" id="imageInput" accept="image/*" />
-    </div>
 
-    <div class="preview-box">
-      <img id="previewImage" alt="Preview" />
-      <span id="previewPlaceholder">No image selected</span>
-    </div>
+      <div class="preview-box">
+        <img id="previewImage" alt="Preview" />
+        <span id="previewPlaceholder">No image selected</span>
+      </div>
 
-    <div class="button-row">
-      <button id="analyzeBtn" class="primary">Analyze</button>
-      <button id="clearBtn" type="button">Clear</button>
-    </div>
+      <div class="button-row">
+        <button id="analyzeBtn" class="primary">Analyze</button>
+        <button id="clearBtn" type="button">Clear</button>
+      </div>
 
-    <div class="field">
-      <label for="type">Type</label>
-      <input id="type" type="text" readonly />
-    </div>
+      <div class="grid">
+        <div class="field">
+          <label for="date_entered">Date Entered</label>
+          <input id="date_entered" type="date" readonly />
+        </div>
 
-    <div class="field">
-      <label for="brand_make">Brand / Make</label>
-      <input id="brand_make" type="text" readonly />
-    </div>
+        <div class="field">
+          <label for="serial_manual">Serial Number</label>
+          <input id="serial_manual" type="text" placeholder="Enter manually if needed" />
+        </div>
+      </div>
 
-    <div class="field">
-      <label for="model">Model</label>
-      <input id="model" type="text" readonly />
-    </div>
+      <div class="field full">
+        <label for="description">Description</label>
+        <textarea id="description" readonly></textarea>
+      </div>
 
-    <div class="field">
-      <label for="caliber">Caliber</label>
-      <input id="caliber" type="text" readonly />
-    </div>
+      <div class="grid">
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" type="text" readonly />
+        </div>
 
-    <div class="field">
-      <label for="notes">Notes</label>
-      <textarea id="notes" rows="4" readonly></textarea>
+        <div class="field">
+          <label for="brand_make">Brand / Make</label>
+          <input id="brand_make" type="text" readonly />
+        </div>
+
+        <div class="field">
+          <label for="model">Model</label>
+          <input id="model" type="text" readonly />
+        </div>
+
+        <div class="field">
+          <label for="type">Type</label>
+          <input id="type" type="text" readonly />
+        </div>
+
+        <div class="field">
+          <label for="caliber_gauge">Caliber / Gauge</label>
+          <input id="caliber_gauge" type="text" readonly />
+        </div>
+
+        <div class="field">
+          <label for="finish_material">Finish / Material</label>
+          <input id="finish_material" type="text" readonly />
+        </div>
+
+        <div class="field full">
+          <label for="visible_specs">Visible Specifications</label>
+          <input id="visible_specs" type="text" readonly />
+        </div>
+
+        <div class="field full">
+          <label for="visible_markings">Visible Markings</label>
+          <input id="visible_markings" type="text" readonly />
+        </div>
+
+        <div class="field full">
+          <label for="enriched_summary">Enriched Summary</label>
+          <textarea id="enriched_summary" readonly></textarea>
+        </div>
+
+        <div class="field full">
+          <label for="source_url">Source URL</label>
+          <input id="source_url" type="text" readonly />
+        </div>
+
+        <div class="field full">
+          <label for="confidence_notes">Confidence Notes</label>
+          <textarea id="confidence_notes" readonly></textarea>
+        </div>
+
+        <div class="field full">
+          <label for="raw_json">Raw JSON</label>
+          <pre id="raw_json"></pre>
+        </div>
+      </div>
     </div>
   </div>
 
-  <script>
-    const imageInput = document.getElementById("imageInput");
-    const previewImage = document.getElementById("previewImage");
-    const previewPlaceholder = document.getElementById("previewPlaceholder");
-    const analyzeBtn = document.getElementById("analyzeBtn");
-    const clearBtn = document.getElementById("clearBtn");
-    const errorBox = document.getElementById("errorBox");
-
-    const typeField = document.getElementById("type");
-    const brandMakeField = document.getElementById("brand_make");
-    const modelField = document.getElementById("model");
-    const caliberField = document.getElementById("caliber");
-    const notesField = document.getElementById("notes");
-
-    function showError(message) {
-      errorBox.textContent = message;
-      errorBox.style.display = "block";
-    }
-
-    function clearError() {
-      errorBox.textContent = "";
-      errorBox.style.display = "none";
-    }
-
-    function clearResults() {
-      typeField.value = "";
-      brandMakeField.value = "";
-      modelField.value = "";
-      caliberField.value = "";
-      notesField.value = "";
-    }
-
-    function clearAll() {
-      imageInput.value = "";
-      previewImage.src = "";
-      previewImage.style.display = "none";
-      previewPlaceholder.style.display = "inline";
-      clearError();
-      clearResults();
-    }
-
-    imageInput.addEventListener("change", () => {
-      clearError();
-      clearResults();
-
-      const file = imageInput.files[0];
-      if (!file) {
-        previewImage.src = "";
-        previewImage.style.display = "none";
-        previewPlaceholder.style.display = "inline";
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        previewImage.src = e.target.result;
-        previewImage.style.display = "block";
-        previewPlaceholder.style.display = "none";
-      };
-      reader.readAsDataURL(file);
-    });
-
-    clearBtn.addEventListener("click", clearAll);
-
-    analyzeBtn.addEventListener("click", async () => {
-      clearError();
-      clearResults();
-
-      const file = imageInput.files[0];
-      if (!file) {
-        showError("Please select an image first.");
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append("image", file);
-
-      analyzeBtn.disabled = true;
-      analyzeBtn.textContent = "Analyzing...";
-
-      try {
-        const response = await fetch("/analyze", {
-          method: "POST",
-          body: formData
-        });
-
-        const rawText = await response.text();
-
-        if (!rawText) {
-          throw new Error("Server returned an empty response.");
-        }
-
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (parseError) {
-          console.error("Non-JSON response:", rawText);
-          throw new Error("Server did not return valid JSON.");
-        }
-
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || `Request failed with status ${response.status}`);
-        }
-
-        const result = data.result || {};
-        typeField.value = result.type || "";
-        brandMakeField.value = result.brand_make || "";
-        modelField.value = result.model || "";
-        caliberField.value = result.caliber || "";
-        notesField.value = result.notes || "";
-      } catch (error) {
-        console.error(error);
-        showError(error.message || "Something went wrong during analysis.");
-      } finally {
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = "Analyze";
-      }
-    });
-  </script>
+  <script src="/static/app.js"></script>
 </body>
 </html>
