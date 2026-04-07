@@ -1,6 +1,9 @@
 from flask import Flask, request, jsonify, render_template_string
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps, ImageFilter
+import pytesseract
 import os
+import re
 import traceback
 
 app = Flask(__name__)
@@ -19,17 +22,18 @@ HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Image Catalog Demo</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; max-width: 960px; margin: 40px auto; padding: 20px; }
     .error { margin: 12px 0; padding: 12px; border: 1px solid #e0b4b4; background: #fff6f6; color: #9f3a38; border-radius: 8px; display: none; }
     .field { margin: 12px 0; }
-    input[type="text"] { width: 100%; padding: 10px; }
-    img { max-width: 300px; margin-top: 10px; display: none; }
+    input[type="text"], textarea { width: 100%; padding: 10px; box-sizing: border-box; }
+    img { max-width: 320px; margin-top: 10px; display: none; }
     button { padding: 10px 18px; margin-right: 10px; }
+    pre { background: #f7f7f7; padding: 12px; border-radius: 8px; overflow-x: auto; }
   </style>
 </head>
 <body>
   <h1>Image Catalog Demo</h1>
-  <p>Upload an image, get structured AI suggestions, see likely catalog matches, and ask follow-up questions.</p>
+  <p>Upload an image and extract visible text plus likely identifiers.</p>
 
   <div id="errorBox" class="error"></div>
 
@@ -43,23 +47,18 @@ HTML = """
   </div>
 
   <div class="field">
-    <label>TYPE</label>
-    <input id="type" type="text" readonly>
+    <label>Detected Serial / Identifier</label>
+    <input id="serial_number" type="text" readonly>
   </div>
 
   <div class="field">
-    <label>BRAND / MAKE</label>
-    <input id="brand_make" type="text" readonly>
+    <label>All OCR Text</label>
+    <textarea id="ocr_text" rows="8" readonly></textarea>
   </div>
 
   <div class="field">
-    <label>MODEL</label>
-    <input id="model" type="text" readonly>
-  </div>
-
-  <div class="field">
-    <label>CALIBER</label>
-    <input id="caliber" type="text" readonly>
+    <label>Matched Record</label>
+    <pre id="matched_record"></pre>
   </div>
 
   <script>
@@ -69,10 +68,9 @@ HTML = """
     const clearBtn = document.getElementById("clearBtn");
     const errorBox = document.getElementById("errorBox");
 
-    const typeField = document.getElementById("type");
-    const brandMakeField = document.getElementById("brand_make");
-    const modelField = document.getElementById("model");
-    const caliberField = document.getElementById("caliber");
+    const serialField = document.getElementById("serial_number");
+    const ocrField = document.getElementById("ocr_text");
+    const recordField = document.getElementById("matched_record");
 
     function showError(msg) {
       errorBox.textContent = msg;
@@ -85,10 +83,9 @@ HTML = """
     }
 
     function clearFields() {
-      typeField.value = "";
-      brandMakeField.value = "";
-      modelField.value = "";
-      caliberField.value = "";
+      serialField.value = "";
+      ocrField.value = "";
+      recordField.textContent = "";
     }
 
     imageInput.addEventListener("change", () => {
@@ -137,46 +134,168 @@ HTML = """
           body: formData
         });
 
-        const contentType = response.headers.get("content-type") || "";
         const rawText = await response.text();
-
-        console.log("STATUS:", response.status);
-        console.log("CONTENT-TYPE:", contentType);
-        console.log("RAW RESPONSE:", rawText);
-
-        if (!rawText || rawText.trim() === "") {
+        if (!rawText.trim()) {
           throw new Error("Server returned an empty response.");
-        }
-
-        if (!contentType.includes("application/json")) {
-          throw new Error("Server returned non-JSON response: " + rawText.slice(0, 200));
         }
 
         let data;
         try {
           data = JSON.parse(rawText);
-        } catch (e) {
-          throw new Error("Invalid JSON returned by server: " + rawText.slice(0, 200));
+        } catch {
+          throw new Error("Server did not return valid JSON.");
         }
 
         if (!response.ok || !data.success) {
           throw new Error(data.error || "Request failed.");
         }
 
-        typeField.value = data.result.type || "";
-        brandMakeField.value = data.result.brand_make || "";
-        modelField.value = data.result.model || "";
-        caliberField.value = data.result.caliber || "";
+        serialField.value = data.result.serial_number || "";
+        ocrField.value = data.result.ocr_text || "";
+        recordField.textContent = JSON.stringify(data.result.matched_record || {}, null, 2);
 
       } catch (err) {
-        console.error(err);
-        showError(err.message);
+        showError(err.message || "Something went wrong.");
       }
     });
   </script>
 </body>
 </html>
 """
+
+
+def preprocess_image(image_path: str) -> Image.Image:
+    """
+    Basic OCR preprocessing:
+    - grayscale
+    - autocontrast
+    - slight sharpen
+    - optional upscale
+    """
+    img = Image.open(image_path).convert("RGB")
+    gray = ImageOps.grayscale(img)
+    gray = ImageOps.autocontrast(gray)
+    gray = gray.filter(ImageFilter.SHARPEN)
+
+    # Upscale to help OCR on small engraved text
+    width, height = gray.size
+    scale = 2
+    gray = gray.resize((width * scale, height * scale))
+
+    return gray
+
+
+def extract_text(image_path: str) -> str:
+    """
+    Run OCR and return all visible text.
+    """
+    processed = preprocess_image(image_path)
+
+    # Page segmentation mode 6: assume a block of text
+    config = "--oem 3 --psm 6"
+    text = pytesseract.image_to_string(processed, config=config)
+
+    return text.strip()
+
+
+def normalize_text(text: str) -> str:
+    """
+    Collapse whitespace and normalize separators.
+    """
+    text = text.replace("\\n", " ")
+    text = re.sub(r"\\s+", " ", text)
+    return text.strip()
+
+
+def extract_identifier_candidates(text: str) -> list[str]:
+    """
+    Pull candidate alphanumeric identifiers from OCR text.
+
+    This is intentionally generic. Adjust the regex to match the ID formats
+    used in your own inventory or partner systems.
+    """
+    normalized = normalize_text(text).upper()
+
+    # Prefer patterns appearing after common labels
+    labeled_patterns = [
+        r"(?:SERIAL|SERIAL NO|SERIAL NUMBER|S/N|SN)[:#\\- ]+([A-Z0-9\\-]{4,20})",
+        r"(?:ID|ITEM ID|ASSET ID)[:#\\- ]+([A-Z0-9\\-]{4,20})",
+    ]
+
+    candidates = []
+    for pattern in labeled_patterns:
+        matches = re.findall(pattern, normalized, flags=re.IGNORECASE)
+        candidates.extend(matches)
+
+    # Fallback: generic standalone alphanumeric tokens
+    generic = re.findall(r"\\b[A-Z0-9\\-]{5,20}\\b", normalized)
+    candidates.extend(generic)
+
+    # Deduplicate while preserving order
+    seen = set()
+    cleaned = []
+    for c in candidates:
+        c = c.strip("- ")
+        if c and c not in seen:
+            seen.add(c)
+            cleaned.append(c)
+
+    return cleaned
+
+
+def choose_best_identifier(candidates: list[str]) -> str | None:
+    """
+    Heuristic ranking: discard obvious OCR junk and choose the best candidate.
+    """
+    if not candidates:
+        return None
+
+    def score(token: str) -> int:
+        s = 0
+        if any(ch.isdigit() for ch in token):
+            s += 3
+        if any(ch.isalpha() for ch in token):
+            s += 2
+        if 6 <= len(token) <= 14:
+            s += 2
+        if token.count("-") <= 2:
+            s += 1
+        if token in {"MODEL", "MADE", "USA", "PATENT", "WARNING"}:
+            s -= 10
+        return s
+
+    ranked = sorted(candidates, key=score, reverse=True)
+    return ranked[0] if ranked else None
+
+
+def lookup_record_by_identifier(identifier: str | None) -> dict:
+    """
+    Replace this with your real lookup:
+    - database query
+    - internal API
+    - spreadsheet-backed catalog
+    - external compliance/inventory service
+
+    Example returns mocked data.
+    """
+    if not identifier:
+        return {}
+
+    mock_catalog = {
+        "ABC12345": {
+            "status": "found",
+            "brand": "Example Brand",
+            "model": "Example Model",
+            "description": "Sample catalog record",
+            "notes": "Replace with real database/API lookup."
+        }
+    }
+
+    return mock_catalog.get(identifier, {
+        "status": "not_found",
+        "identifier": identifier,
+        "notes": "No matching record found in current data source."
+    })
 
 
 @app.route("/", methods=["GET"])
@@ -186,40 +305,36 @@ def index():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({
-        "success": True,
-        "message": "Server is running"
-    }), 200
+    return jsonify({"success": True, "message": "Server is running"}), 200
 
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
     try:
         if "image" not in request.files:
-            return jsonify({
-                "success": False,
-                "error": "No image file was uploaded."
-            }), 400
+            return jsonify({"success": False, "error": "No image file was uploaded."}), 400
 
         image = request.files["image"]
 
         if image.filename == "":
-            return jsonify({
-                "success": False,
-                "error": "No file selected."
-            }), 400
+            return jsonify({"success": False, "error": "No file selected."}), 400
 
         filename = secure_filename(image.filename)
-        path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image.save(path)
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        image.save(file_path)
+
+        ocr_text = extract_text(file_path)
+        candidates = extract_identifier_candidates(ocr_text)
+        identifier = choose_best_identifier(candidates)
+        matched_record = lookup_record_by_identifier(identifier)
 
         return jsonify({
             "success": True,
             "result": {
-                "type": "Handgun",
-                "brand_make": "Smith & Wesson",
-                "model": "J-Frame",
-                "caliber": ".38 Special"
+                "serial_number": identifier or "",
+                "all_candidates": candidates,
+                "ocr_text": ocr_text,
+                "matched_record": matched_record
             }
         }), 200
 
@@ -233,26 +348,17 @@ def analyze():
 
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({
-        "success": False,
-        "error": "Route not found"
-    }), 404
+    return jsonify({"success": False, "error": "Route not found"}), 404
 
 
 @app.errorhandler(405)
 def method_not_allowed(e):
-    return jsonify({
-        "success": False,
-        "error": "Method not allowed"
-    }), 405
+    return jsonify({"success": False, "error": "Method not allowed"}), 405
 
 
 @app.errorhandler(413)
 def file_too_large(e):
-    return jsonify({
-        "success": False,
-        "error": "Uploaded file is too large"
-    }), 413
+    return jsonify({"success": False, "error": "Uploaded file is too large"}), 413
 
 
 if __name__ == "__main__":
