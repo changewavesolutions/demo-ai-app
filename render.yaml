@@ -1,3 +1,6 @@
-buildCommand: |
-  pip install --upgrade pip
-  pip install flask werkzeug gunicorn openai requests
+services:
+  - type: web
+    name: demo-ai-app
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
